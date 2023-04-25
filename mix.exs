@@ -51,12 +51,12 @@ defmodule NervesSystemAM62xxEVM.MixProject do
       ],
       # baseline_rv64 enables the a, c, d, and m extensions in zig
       env: [
-        {"TARGET_ARCH", "riscv64"},
+        {"TARGET_ARCH", "aarch64"},
         {"TARGET_CPU", "baseline_rv64"},
         {"TARGET_OS", "linux"},
         {"TARGET_ABI", "gnu"},
         {"TARGET_GCC_FLAGS",
-          "-mabi=lp64d -fstack-protector-strong -march=rv64imafdcv -fPIE -pie -Wl,-z,now -Wl,-z,relro"}
+          "-mabi=lp64 -fstack-protector-strong -mcpu=cortex-a72 -fPIE -pie -Wl,-z,now -Wl,-z,relro"}
 
       ],
       checksum: package_files()
@@ -67,7 +67,7 @@ defmodule NervesSystemAM62xxEVM.MixProject do
     [
       {:nerves, "~> 1.6.0 or ~> 1.7.15 or ~> 1.8", runtime: false},
       {:nerves_system_br, "1.22.5", runtime: false},
-      {:nerves_toolchain_riscv64_nerves_linux_gnu, "~> 1.8.0", runtime: false},
+      {:nerves_toolchain_aarch64_nerves_linux_gnu, "~> 1.8.0", runtime: false},
       {:nerves_system_linter, "~> 0.4", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.22", only: :docs, runtime: false}
     ]
