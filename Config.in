@@ -1,1 +1,1 @@
-source "$NERVES_DEFCONFIG_DIR/package/ti-linux-fw/Config.in"
+source "$NERVES_DEFCONFIG_DIR/package/ti-linux-firmware/Config.in"

@@ -1,3 +1,3 @@
-config BR2_TARGET_TI_K3_FW
+config BR2_TARGET_TI_K3_FIRMWARE
 	bool "TI Linux Firmware"
 	select BR2_TARGET_TI_K3_R5_LOADER
