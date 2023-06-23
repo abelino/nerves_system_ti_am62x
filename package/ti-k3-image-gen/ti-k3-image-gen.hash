@@ -1,0 +1,8 @@
+sha256  f89ea4b1f5c992455b1a682fde48359221b53f3294135df4bf20feea6aea90e4  k3-image-gen-08.06.00.007.tar.gz
+sha256  f012e8d000d711d0539e5b4c812fc1d3a59c10fc1e3d6ea155556f5b78286845  LICENSE
+
+sha256  eca3d0dca65ceabdf17c7efa6b0eb651d365c6056730aa1c67700b7fea2e8bd2  ti-fs-firmware-am62x-gp.bin
+sha256  9ed6089ca7d59e9e5919b0da92effe788138edef41682e0bf7eaea25a896a4f1  ti-fs-firmware-am62x-hs-cert.bin
+sha256  655b5ded62b63f26c17b3ae2f23ac3565ae91fbd7fba1b7b0a4cb7807467523b  ti-fs-firmware-am62x-hs-enc.bin
+sha256  5efa229acd122685fa928170a3f2e39597cce0231fca10b03d9b4d519db2259f  ti-fs-firmware-am62x-hs-fs-cert.bin
+sha256  0f49da5e616a95dc8573531799d20fa7697a000f88084d09f3f6f5a665d85680  ti-fs-firmware-am62x-hs-fs-enc.bin

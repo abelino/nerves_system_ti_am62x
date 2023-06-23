@@ -1,0 +1,55 @@
+config BR2_PACKAGE_TI_K3_IMAGE_GEN
+	bool "System firmware and configuration image generator for TI K3 SoCs"
+	depends on BR2_PACKAGE_TI_K3_R5_LOADER_NEXT
+	help
+	  Use TI's k3-image-gen to build a separate bare metal
+	  boot binary from a separate SPL that is running on
+	  the R5 core. Currently supports version 08.06.00.007
+	  as default.
+
+	  https://git.ti.com/cgit/k3-image-gen/k3-image-gen/
+
+if BR2_PACKAGE_TI_K3_IMAGE_GEN
+choice
+	prompt "SoC firmware type for image gen"
+	default BR2_PACKAGE_TI_K3_IMAGE_GEN_FW_TYPE_TIFS
+
+config BR2_PACKAGE_TI_K3_IMAGE_GEN_FW_TYPE_TIFS
+	bool "Firmware type TIFS"
+	help
+	  Use firmware type TIFS for SoCs like AM62x and
+	  AM62Ax.
+
+config BR2_PACKAGE_TI_K3_IMAGE_GEN_FW_TYPE_TISCI
+	bool "Firmware type TISCI"
+	help
+	  Use firmware type TISCI for SoCs like AM64x and
+	  AM65x.
+
+endchoice
+
+config BR2_PACKAGE_TI_K3_IMAGE_GEN_SOC
+	string "SoC"
+	help
+	  The target SoC option for image gen.
+	  For example, "am64x" for AM64x boards.
+
+config BR2_PACKAGE_TI_K3_IMAGE_GEN_SOC_TYPE
+	string "security type"
+	help
+	  The target SoC security type option for image gen.
+	  Valid options are "gp" for General Purpose devices,
+	  "hs-fs" for High Security - Field Securable devices, or
+	  "hs" for High Security - Security Enforcing devices.
+	  Note for all High Security device variants the
+	  TI_SECURE_DEV_PKG environmental variable must be defined
+	  at build time pointing to a valid core-secdev-k3 folder
+	  location, otherwise the build will fail, see
+	  https://git.ti.com/cgit/security-development-tools/core-secdev-k3
+
+config BR2_PACKAGE_TI_K3_IMAGE_GEN_CONFIG
+	string "config type"
+	help
+	  The board config option for image gen.
+	  Usually "sk" or "evm".
+endif
