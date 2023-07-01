@@ -1,0 +1,593 @@
+From 59a84b164b3cfa20af3c083babcd80f99359302b Mon Sep 17 00:00:00 2001
+From: Justin Schneck <jschneck@mac.com>
+Date: Wed, 17 Aug 2022 14:26:44 -0400
+Subject: [PATCH] Bump SquashFS to v2022.05
+
+---
+ fs/squashfs/sqfs.c            | 106 ++++++++++++++++++++--------------
+ fs/squashfs/sqfs_dir.c        |   3 +-
+ fs/squashfs/sqfs_filesystem.h |   2 +-
+ fs/squashfs/sqfs_inode.c      |   1 +
+ include/fs.h                  |  55 +++++++++++++-----
+ include/gzip.h                |  18 +++---
+ lib/gunzip.c                  |  28 ++++-----
+ 7 files changed, 130 insertions(+), 83 deletions(-)
+
+diff --git a/fs/squashfs/sqfs.c b/fs/squashfs/sqfs.c
+index 5de69ac3..9c1f87ca 100644
+--- a/fs/squashfs/sqfs.c
++++ b/fs/squashfs/sqfs.c
+@@ -8,11 +8,12 @@
+  */
+
+ #include <asm/unaligned.h>
++#include <div64.h>
+ #include <errno.h>
+ #include <fs.h>
+ #include <linux/types.h>
+-#include <linux/byteorder/little_endian.h>
+-#include <linux/byteorder/generic.h>
++#include <asm/byteorder.h>
++#include <linux/compat.h>
+ #include <memalign.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -725,9 +726,12 @@ static int sqfs_read_inode_table(unsigned char **inode_table)
+ 		goto free_itb;
+ 	}
+
+-	*inode_table = malloc(metablks_count * SQFS_METADATA_BLOCK_SIZE);
++	*inode_table = kcalloc(metablks_count, SQFS_METADATA_BLOCK_SIZE,
++			       GFP_KERNEL);
+ 	if (!*inode_table) {
+ 		ret = -ENOMEM;
++		printf("Error: failed to allocate squashfs inode_table of size %i, increasing CONFIG_SYS_MALLOC_LEN could help\n",
++		       metablks_count * SQFS_METADATA_BLOCK_SIZE);
+ 		goto free_itb;
+ 	}
+
+@@ -876,7 +880,7 @@ int sqfs_opendir(const char *filename, struct fs_dir_stream **dirsp)
+ 	char **token_list = NULL, *path = NULL;
+ 	u32 *pos_list = NULL;
+
+-	dirs = malloc(sizeof(*dirs));
++	dirs = calloc(1, sizeof(*dirs));
+ 	if (!dirs)
+ 		return -EINVAL;
+
+@@ -973,6 +977,7 @@ int sqfs_readdir(struct fs_dir_stream *fs_dirs, struct fs_dirent **dentp)
+ 	int i_number, offset = 0, ret;
+ 	struct fs_dirent *dent;
+ 	unsigned char *ipos;
++	u16 name_size;
+
+ 	dirs = (struct squashfs_dir_stream *)fs_dirs;
+ 	if (!dirs->size) {
+@@ -1055,9 +1060,10 @@ int sqfs_readdir(struct fs_dir_stream *fs_dirs, struct fs_dirent **dentp)
+ 		return -SQFS_STOP_READDIR;
+ 	}
+
+-	/* Set entry name */
+-	strncpy(dent->name, dirs->entry->name, dirs->entry->name_size + 1);
+-	dent->name[dirs->entry->name_size + 1] = '\0';
++	/* Set entry name (capped at FS_DIRENT_NAME_LEN which is a U-Boot limitation) */
++	name_size = min_t(u16, dirs->entry->name_size + 1, FS_DIRENT_NAME_LEN - 1);
++	strncpy(dent->name, dirs->entry->name, name_size);
++	dent->name[name_size] = '\0';
+
+ 	offset = dirs->entry->name_size + 1 + SQFS_ENTRY_BASE_LENGTH;
+ 	dirs->entry_count--;
+@@ -1090,7 +1096,7 @@ int sqfs_probe(struct blk_desc *fs_dev_desc, struct disk_partition *fs_partition
+
+ 	/* Make sure it has a valid SquashFS magic number*/
+ 	if (get_unaligned_le32(&sblk->s_magic) != SQFS_MAGIC_NUMBER) {
+-		printf("Bad magic number for SquashFS image.\n");
++		debug("Bad magic number for SquashFS image.\n");
+ 		ret = -EINVAL;
+ 		goto error;
+ 	}
+@@ -1253,7 +1259,7 @@ static int sqfs_get_regfile_info(struct squashfs_reg_inode *reg,
+ 				       fentry);
+ 		if (ret < 0)
+ 			return -EINVAL;
+-		finfo->comp = true;
++		finfo->comp = ret;
+ 		if (fentry->size < 1 || fentry->start == 0x7FFFFFFF)
+ 			return -EINVAL;
+ 	} else {
+@@ -1291,7 +1297,7 @@ static int sqfs_get_lregfile_info(struct squashfs_lreg_inode *lreg,
+ 				       fentry);
+ 		if (ret < 0)
+ 			return -EINVAL;
+-		finfo->comp = true;
++		finfo->comp = ret;
+ 		if (fentry->size < 1 || fentry->start == 0x7FFFFFFF)
+ 			return -EINVAL;
+ 	} else {
+@@ -1308,9 +1314,9 @@ static int sqfs_get_lregfile_info(struct squashfs_lreg_inode *lreg,
+ int sqfs_read(const char *filename, void *buf, loff_t offset, loff_t len,
+ 	      loff_t *actread)
+ {
+-	char *dir = NULL, *fragment_block, *datablock = NULL, *data_buffer = NULL;
++	char *dir = NULL, *fragment_block, *datablock = NULL;
+ 	char *fragment = NULL, *file = NULL, *resolved, *data;
+-	u64 start, n_blks, table_size, data_offset, table_offset;
++	u64 start, n_blks, table_size, data_offset, table_offset, sparse_size;
+ 	int ret, j, i_number, datablk_count = 0;
+ 	struct squashfs_super_block *sblk = ctxt.sblk;
+ 	struct squashfs_fragment_block_entry frag_entry;
+@@ -1438,34 +1444,51 @@ int sqfs_read(const char *filename, void *buf, loff_t offset, loff_t len,
+ 	}
+
+ 	for (j = 0; j < datablk_count; j++) {
+-		start = data_offset / ctxt.cur_dev->blksz;
++		char *data_buffer;
++
++		start = lldiv(data_offset, ctxt.cur_dev->blksz);
+ 		table_size = SQFS_BLOCK_SIZE(finfo.blk_sizes[j]);
+ 		table_offset = data_offset - (start * ctxt.cur_dev->blksz);
+ 		n_blks = DIV_ROUND_UP(table_size + table_offset,
+ 				      ctxt.cur_dev->blksz);
+
+-		data_buffer = malloc_cache_aligned(n_blks * ctxt.cur_dev->blksz);
++		/* Don't load any data for sparse blocks */
++		if (finfo.blk_sizes[j] == 0) {
++			n_blks = 0;
++			table_offset = 0;
++			data_buffer = NULL;
++			data = NULL;
++		} else {
++			data_buffer = malloc_cache_aligned(n_blks * ctxt.cur_dev->blksz);
+
+-		if (!data_buffer) {
+-			ret = -ENOMEM;
+-			goto out;
+-		}
++			if (!data_buffer) {
++				ret = -ENOMEM;
++				goto out;
++			}
+
+-		ret = sqfs_disk_read(start, n_blks, data_buffer);
+-		if (ret < 0) {
+-			/*
+-			 * Possible causes: too many data blocks or too large
+-			 * SquashFS block size. Tip: re-compile the SquashFS
+-			 * image with mksquashfs's -b <block_size> option.
+-			 */
+-			printf("Error: too many data blocks to be read.\n");
+-			goto out;
+-		}
++			ret = sqfs_disk_read(start, n_blks, data_buffer);
++			if (ret < 0) {
++				/*
++				 * Possible causes: too many data blocks or too large
++				 * SquashFS block size. Tip: re-compile the SquashFS
++				 * image with mksquashfs's -b <block_size> option.
++				 */
++				printf("Error: too many data blocks to be read.\n");
++				goto out;
++			}
+
+-		data = data_buffer + table_offset;
++			data = data_buffer + table_offset;
++		}
+
+ 		/* Load the data */
+-		if (SQFS_COMPRESSED_BLOCK(finfo.blk_sizes[j])) {
++		if (finfo.blk_sizes[j] == 0) {
++			/* This is a sparse block */
++			sparse_size = get_unaligned_le32(&sblk->block_size);
++			if ((*actread + sparse_size) > len)
++				sparse_size = len - *actread;
++			memset(buf + *actread, 0, sparse_size);
++			*actread += sparse_size;
++		} else if (SQFS_COMPRESSED_BLOCK(finfo.blk_sizes[j])) {
+ 			dest_len = get_unaligned_le32(&sblk->block_size);
+ 			ret = sqfs_decompress(&ctxt, datablock, &dest_len,
+ 					      data, table_size);
+@@ -1485,7 +1508,6 @@ int sqfs_read(const char *filename, void *buf, loff_t offset, loff_t len,
+
+ 		data_offset += table_size;
+ 		free(data_buffer);
+-		data_buffer = NULL;
+ 		if (*actread >= len)
+ 			break;
+ 	}
+@@ -1498,7 +1520,7 @@ int sqfs_read(const char *filename, void *buf, loff_t offset, loff_t len,
+ 		goto out;
+ 	}
+
+-	start = frag_entry.start / ctxt.cur_dev->blksz;
++	start = lldiv(frag_entry.start, ctxt.cur_dev->blksz);
+ 	table_size = SQFS_BLOCK_SIZE(frag_entry.size);
+ 	table_offset = frag_entry.start - (start * ctxt.cur_dev->blksz);
+ 	n_blks = DIV_ROUND_UP(table_size + table_offset, ctxt.cur_dev->blksz);
+@@ -1531,28 +1553,21 @@ int sqfs_read(const char *filename, void *buf, loff_t offset, loff_t len,
+ 			goto out;
+ 		}
+
+-		for (j = *actread; j < finfo.size; j++) {
+-			memcpy(buf + j, &fragment_block[finfo.offset + j], 1);
+-			(*actread)++;
+-		}
++		memcpy(buf + *actread, &fragment_block[finfo.offset], finfo.size - *actread);
++		*actread = finfo.size;
+
+ 		free(fragment_block);
+
+ 	} else if (finfo.frag && !finfo.comp) {
+ 		fragment_block = (void *)fragment + table_offset;
+
+-		for (j = *actread; j < finfo.size; j++) {
+-			memcpy(buf + j, &fragment_block[finfo.offset + j], 1);
+-			(*actread)++;
+-		}
++		memcpy(buf + *actread, &fragment_block[finfo.offset], finfo.size - *actread);
++		*actread = finfo.size;
+ 	}
+
+ out:
+ 	free(fragment);
+-	if (datablk_count) {
+-		free(data_buffer);
+-		free(datablock);
+-	}
++	free(datablock);
+ 	free(file);
+ 	free(dir);
+ 	free(finfo.blk_sizes);
+@@ -1700,6 +1715,9 @@ void sqfs_closedir(struct fs_dir_stream *dirs)
+ {
+ 	struct squashfs_dir_stream *sqfs_dirs;
+
++	if (!dirs)
++		return;
++
+ 	sqfs_dirs = (struct squashfs_dir_stream *)dirs;
+ 	free(sqfs_dirs->inode_table);
+ 	free(sqfs_dirs->dir_table);
+diff --git a/fs/squashfs/sqfs_dir.c b/fs/squashfs/sqfs_dir.c
+index a265b98f..ed83c906 100644
+--- a/fs/squashfs/sqfs_dir.c
++++ b/fs/squashfs/sqfs_dir.c
+@@ -7,8 +7,7 @@
+
+ #include <errno.h>
+ #include <linux/types.h>
+-#include <linux/byteorder/little_endian.h>
+-#include <linux/byteorder/generic.h>
++#include <asm/byteorder.h>
+ #include <stdint.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+diff --git a/fs/squashfs/sqfs_filesystem.h b/fs/squashfs/sqfs_filesystem.h
+index 856cd15e..5440b6c0 100644
+--- a/fs/squashfs/sqfs_filesystem.h
++++ b/fs/squashfs/sqfs_filesystem.h
+@@ -231,7 +231,7 @@ union squashfs_inode {
+
+ struct squashfs_directory_entry {
+ 	u16 offset;
+-	u16 inode_offset;
++	s16 inode_offset;
+ 	u16 type;
+ 	u16 name_size;
+ 	char name[0];
+diff --git a/fs/squashfs/sqfs_inode.c b/fs/squashfs/sqfs_inode.c
+index e76ec7cb..d25cfb53 100644
+--- a/fs/squashfs/sqfs_inode.c
++++ b/fs/squashfs/sqfs_inode.c
+@@ -6,6 +6,7 @@
+  */
+
+ #include <asm/unaligned.h>
++#include <compiler.h>
+ #include <errno.h>
+ #include <stdint.h>
+ #include <stdio.h>
+diff --git a/include/fs.h b/include/fs.h
+index 0794b50d..2195dc17 100644
+--- a/include/fs.h
++++ b/include/fs.h
+@@ -6,6 +6,7 @@
+ #define _FS_H
+
+ #include <common.h>
++#include <rtc.h>
+
+ struct cmd_tbl;
+
+@@ -16,6 +17,8 @@ struct cmd_tbl;
+ #define FS_TYPE_UBIFS	4
+ #define FS_TYPE_BTRFS	5
+ #define FS_TYPE_SQUASHFS 6
++#define FS_TYPE_EROFS   7
++#define FS_TYPE_SEMIHOSTING 8
+
+ struct blk_desc;
+
+@@ -26,7 +29,7 @@ struct blk_desc;
+  * @flag: Command flags (CMD_FLAG_...)
+  * @argc: Number of arguments
+  * @argv: List of arguments
+- * @return result (see enum command_ret_t)
++ * Return: result (see enum command_ret_t)
+  */
+ int do_fat_fsload(struct cmd_tbl *cmdtp, int flag, int argc,
+ 		  char *const argv[]);
+@@ -38,7 +41,7 @@ int do_fat_fsload(struct cmd_tbl *cmdtp, int flag, int argc,
+  * @flag: Command flags (CMD_FLAG_...)
+  * @argc: Number of arguments
+  * @argv: List of arguments
+- * @return result (see enum command_ret_t)
++ * Return: result (see enum command_ret_t)
+  */
+ int do_ext2load(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[]);
+
+@@ -54,6 +57,17 @@ int do_ext2load(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[]);
+  */
+ int fs_set_blk_dev(const char *ifname, const char *dev_part_str, int fstype);
+
++/**
++ * fs_set_type() - Tell fs layer which filesystem type is used
++ *
++ * This is needed when reading from a non-block device such as sandbox. It does
++ * a similar job to fs_set_blk_dev() but just sets the filesystem type instead
++ * of detecting it and loading it on the block device
++ *
++ * @type: Filesystem type to use (FS_TYPE...)
++ */
++void fs_set_type(int type);
++
+ /*
+  * fs_set_blk_dev_with_part - Set current block device + partition
+  *
+@@ -117,7 +131,7 @@ int fs_exists(const char *filename);
+  *
+  * @filename: Name of the file
+  * @size: Size of file
+- * @return 0 if ok with valid *size, negative on error
++ * Return: 0 if ok with valid *size, negative on error
+  */
+ int fs_size(const char *filename, loff_t *size);
+
+@@ -160,14 +174,29 @@ int fs_write(const char *filename, ulong addr, loff_t offset, loff_t len,
+ #define FS_DT_REG  8         /* regular file */
+ #define FS_DT_LNK  10        /* symbolic link */
+
+-/*
+- * A directory entry, returned by fs_readdir().  Returns information
++#define FS_DIRENT_NAME_LEN 256
++
++/**
++ * struct fs_dirent - directory entry
++ *
++ * A directory entry, returned by fs_readdir(). Returns information
+  * about the file/directory at the current directory entry position.
+  */
+ struct fs_dirent {
+-	unsigned type;       /* one of FS_DT_x (not a mask) */
+-	loff_t size;         /* size in bytes */
+-	char name[256];
++	/** @type:		one of FS_DT_x (not a mask) */
++	unsigned int type;
++	/** @size:		file size */
++	loff_t size;
++	/** @flags:		attribute flags (FS_ATTR_*) */
++	u32 attr;
++	/** create_time:	time of creation */
++	struct rtc_time create_time;
++	/** access_time:	time of last access */
++	struct rtc_time access_time;
++	/** change_time:	time of last modification */
++	struct rtc_time change_time;
++	/** name:		file name */
++	char name[FS_DIRENT_NAME_LEN];
+ };
+
+ /* Note: fs_dir_stream should be treated as opaque to the user of fs layer */
+@@ -181,7 +210,7 @@ struct fs_dir_stream {
+  * fs_opendir - Open a directory
+  *
+  * @filename: the path to directory to open
+- * @return a pointer to the directory stream or NULL on error and errno
++ * Return: a pointer to the directory stream or NULL on error and errno
+  *    set appropriately
+  */
+ struct fs_dir_stream *fs_opendir(const char *filename);
+@@ -195,7 +224,7 @@ struct fs_dir_stream *fs_opendir(const char *filename);
+  * longer valid.
+  *
+  * @dirs: the directory stream
+- * @return the next directory entry (only valid until next fs_readdir() or
++ * Return: the next directory entry (only valid until next fs_readdir() or
+  *    fs_closedir() call, do not attempt to free()) or NULL if the end of
+  *    the directory is reached.
+  */
+@@ -214,7 +243,7 @@ void fs_closedir(struct fs_dir_stream *dirs);
+  * If a given name is a directory, it will be deleted only if it's empty
+  *
+  * @filename: Name of file or directory to delete
+- * @return 0 on success, -1 on error conditions
++ * Return: 0 on success, -1 on error conditions
+  */
+ int fs_unlink(const char *filename);
+
+@@ -222,7 +251,7 @@ int fs_unlink(const char *filename);
+  * fs_mkdir - Create a directory
+  *
+  * @filename: Name of directory to create
+- * @return 0 on success, -1 on error conditions
++ * Return: 0 on success, -1 on error conditions
+  */
+ int fs_mkdir(const char *filename);
+
+@@ -267,7 +296,7 @@ int do_fs_type(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[]);
+  * @flag: Command flags (CMD_FLAG_...)
+  * @argc: Number of arguments
+  * @argv: List of arguments
+- * @return result (see enum command_ret_t)
++ * Return: result (see enum command_ret_t)
+  */
+ int do_fs_types(struct cmd_tbl *cmdtp, int flag, int argc, char * const argv[]);
+
+diff --git a/include/gzip.h b/include/gzip.h
+index 783acbb6..e578b283 100644
+--- a/include/gzip.h
++++ b/include/gzip.h
+@@ -16,7 +16,7 @@ struct blk_desc;
+  *
+  * @src: Pointer to gzip file
+  * @len: Length of data
+- * @return length of header in bytes, or -1 if not enough data
++ * Return: length of header in bytes, or -1 if not enough data
+  */
+ int gzip_parse_header(const unsigned char *src, unsigned long len);
+
+@@ -27,7 +27,7 @@ int gzip_parse_header(const unsigned char *src, unsigned long len);
+  * @dstlen: Size of destination buffer
+  * @src: Source data to decompress
+  * @lenp: Returns length of uncompressed data
+- * @return 0 if OK, -1 on error
++ * Return: 0 if OK, -1 on error
+  */
+ int gunzip(void *dst, int dstlen, unsigned char *src, unsigned long *lenp);
+
+@@ -40,7 +40,7 @@ int gunzip(void *dst, int dstlen, unsigned char *src, unsigned long *lenp);
+  * @lenp: On entry, length data at @src. On exit, number of bytes used from @src
+  * @stoponerr: 0 to continue when a decode error is found, 1 to stop
+  * @offset: start offset within the src buffer
+- * @return 0 if OK, -1 on error
++ * Return: 0 if OK, -1 on error
+  */
+ int zunzip(void *dst, int dstlen, unsigned char *src, unsigned long *lenp,
+ 	   int stoponerr, int offset);
+@@ -54,11 +54,11 @@ int zunzip(void *dst, int dstlen, unsigned char *src, unsigned long *lenp,
+  *	gzwrite_progress_finish called at end of loop to
+  *		indicate success (retcode=0) or failure
+  */
+-void gzwrite_progress_init(u64 expected_size);
++void gzwrite_progress_init(ulong expected_size);
+
+-void gzwrite_progress(int iteration, u64 bytes_written, u64 total_bytes);
++void gzwrite_progress(int iteration, ulong bytes_written, ulong total_bytes);
+
+-void gzwrite_progress_finish(int retcode, u64 totalwritten, u64 totalsize,
++void gzwrite_progress_finish(int retcode, ulong totalwritten, ulong totalsize,
+ 			     u32 expected_crc, u32 calculated_crc);
+
+ /**
+@@ -71,10 +71,10 @@ void gzwrite_progress_finish(int retcode, u64 totalwritten, u64 totalsize,
+  * @startoffs:	offset in bytes of first write
+  * @szexpected:	expected uncompressed length, may be zero to use gzip trailer
+  *		for files under 4GiB
+- * @return 0 if OK, -1 on error
++ * Return: 0 if OK, -1 on error
+  */
+ int gzwrite(unsigned char *src, int len, struct blk_desc *dev, ulong szwritebuf,
+-	    u64 startoffs, u64 szexpected);
++	    ulong startoffs, ulong szexpected);
+
+ /**
+  * gzip()- Compress data into a buffer using the gzip algorithm
+@@ -84,7 +84,7 @@ int gzwrite(unsigned char *src, int len, struct blk_desc *dev, ulong szwritebuf,
+  *	number of bytes used in the buffer
+  * @src: Source data to compress
+  * @srclen: Size of source data
+- * @return 0 if OK, -1 on error
++ * Return: 0 if OK, -1 on error
+  */
+ int gzip(void *dst, unsigned long *lenp, unsigned char *src, ulong srclen);
+
+diff --git a/lib/gunzip.c b/lib/gunzip.c
+index bee3b926..a8e498d9 100644
+--- a/lib/gunzip.c
++++ b/lib/gunzip.c
+@@ -84,32 +84,32 @@ int gunzip(void *dst, int dstlen, unsigned char *src, unsigned long *lenp)
+
+ #ifdef CONFIG_CMD_UNZIP
+ __weak
+-void gzwrite_progress_init(u64 expectedsize)
++void gzwrite_progress_init(ulong expectedsize)
+ {
+ 	putc('\n');
+ }
+
+ __weak
+ void gzwrite_progress(int iteration,
+-		     u64 bytes_written,
+-		     u64 total_bytes)
++		     ulong bytes_written,
++		     ulong total_bytes)
+ {
+ 	if (0 == (iteration & 3))
+-		printf("%llu/%llu\r", bytes_written, total_bytes);
++		printf("%lu/%lu\r", bytes_written, total_bytes);
+ }
+
+ __weak
+ void gzwrite_progress_finish(int returnval,
+-			     u64 bytes_written,
+-			     u64 total_bytes,
++			     ulong bytes_written,
++			     ulong total_bytes,
+ 			     u32 expected_crc,
+ 			     u32 calculated_crc)
+ {
+ 	if (0 == returnval) {
+-		printf("\n\t%llu bytes, crc 0x%08x\n",
++		printf("\n\t%lu bytes, crc 0x%08x\n",
+ 		       total_bytes, calculated_crc);
+ 	} else {
+-		printf("\n\tuncompressed %llu of %llu\n"
++		printf("\n\tuncompressed %lu of %lu\n"
+ 		       "\tcrcs == 0x%08x/0x%08x\n",
+ 		       bytes_written, total_bytes,
+ 		       expected_crc, calculated_crc);
+@@ -119,15 +119,15 @@ void gzwrite_progress_finish(int returnval,
+ int gzwrite(unsigned char *src, int len,
+ 	    struct blk_desc *dev,
+ 	    unsigned long szwritebuf,
+-	    u64 startoffs,
+-	    u64 szexpected)
++	    ulong startoffs,
++	    ulong szexpected)
+ {
+ 	int i, flags;
+ 	z_stream s;
+ 	int r = 0;
+ 	unsigned char *writebuf;
+ 	unsigned crc = 0;
+-	u64 totalfilled = 0;
++	ulong totalfilled = 0;
+ 	lbaint_t blksperbuf, outblock;
+ 	u32 expected_crc;
+ 	u32 payload_size;
+@@ -142,7 +142,7 @@ int gzwrite(unsigned char *src, int len,
+ 	}
+
+ 	if (startoffs & (dev->blksz-1)) {
+-		printf("%s: start offset %llu not a multiple of %lu\n",
++		printf("%s: start offset %lu not a multiple of %lu\n",
+ 		       __func__, startoffs, dev->blksz);
+ 		return -1;
+ 	}
+@@ -182,12 +182,12 @@ int gzwrite(unsigned char *src, int len,
+ 	if (szexpected == 0) {
+ 		szexpected = le32_to_cpu(szuncompressed);
+ 	} else if (szuncompressed != (u32)szexpected) {
+-		printf("size of %llx doesn't match trailer low bits %x\n",
++		printf("size of %lx doesn't match trailer low bits %x\n",
+ 		       szexpected, szuncompressed);
+ 		return -1;
+ 	}
+ 	if (lldiv(szexpected, dev->blksz) > (dev->lba - outblock)) {
+-		printf("%s: uncompressed size %llu exceeds device size\n",
++		printf("%s: uncompressed size %lu exceeds device size\n",
+ 		       __func__, szexpected);
+ 		return -1;
+ 	}
+--
+2.34.1
+

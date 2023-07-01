@@ -13,7 +13,7 @@ This is the base Nerves System configuration for the [TI AM62x SKEVM](#sk-am62).
 | Memory               | 2 GB DDR4                                  |
 | Storage              | MicroSD                                    |
 | Linux kernel         | TBD                                        |
-| IEx terminal         | UART `ttyS0`                               |
+| IEx terminal         | UART `ttyS1`                               |
 | GPIO, I2C, SPI       | Yes - [Elixir Circuits](https://github.com/elixir-circuits) |
 | ADC                  | No                                         |
 | Ethernet             | Yes                                        |

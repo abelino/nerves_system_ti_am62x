@@ -13,7 +13,7 @@ TI_K3_IMAGE_GEN_INSTALL_IMAGES = YES
 
 # ti-k3-image-gen is used to build tiboot3.bin, using the r5-u-boot-spl.bin file
 # from the ti-k3-r5-loader package. Hence the dependency on ti-k3-r5-loader.
-TI_K3_IMAGE_GEN_DEPENDENCIES = host-arm-gnu-toolchain ti-k3-r5-loader-next host-ti-k3-secdev
+TI_K3_IMAGE_GEN_DEPENDENCIES = host-arm-gnu-toolchain ti-linux-firmware ti-k3-r5-loader-next host-ti-k3-secdev
 
 ifeq ($(BR2_PACKAGE_TI_K3_IMAGE_GEN_FW_TYPE_TIFS),y)
 TI_K3_IMAGE_GEN_FW_TYPE = $(call qstrip,"ti-fs")
@@ -28,8 +28,8 @@ TI_K3_IMAGE_GEN_SOC_TYPE = $(call qstrip,$(BR2_PACKAGE_TI_K3_IMAGE_GEN_SOC_TYPE)
 TI_K3_IMAGE_GEN_CONFIG = $(call qstrip,$(BR2_PACKAGE_TI_K3_IMAGE_GEN_CONFIG))
 
 # This hash comes from the Makefile in ti-k3-image-gen and corresponds to
-# FW from Git tag 08.06.00.006
-TI_K3_SYSFW_VERSION = 340194800a581baf976360386dfc7b5acab8d948
+# FW from Git tag 08.06.00.007
+TI_K3_SYSFW_VERSION = 2944354aca1f95525c30d625cb17672930e72572
 TI_K3_SYSFW_SITE = https://git.ti.com/processor-firmware/ti-linux-firmware/blobs/raw/$(TI_K3_SYSFW_VERSION)/ti-sysfw
 ifeq ($(TI_K3_IMAGE_GEN_SOC_TYPE),gp)
 TI_K3_SYSFW_SOURCE = \
@@ -59,7 +59,8 @@ TI_K3_IMAGE_GEN_MAKE_OPTS = \
 	SBL=$(BINARIES_DIR)/r5-u-boot-spl.bin \
 	O=$(@D)/tmp \
 	BIN_DIR=$(@D) \
-	TI_SECURE_DEV_PKG=$(HOST_TI_K3_SECDEV_DIR)
+	TI_SECURE_DEV_PKG=$(HOST_TI_K3_SECDEV_DIR) \
+	SYSFW_GIT_HASH=2944354aca1f95525c30d625cb17672930e72572
 
 define TI_K3_IMAGE_GEN_BUILD_CMDS
 	$(TI_K3_IMAGE_GEN_MAKE) -C $(@D) $(TI_K3_IMAGE_GEN_MAKE_OPTS)
