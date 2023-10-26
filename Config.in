@@ -1,4 +1,4 @@
-source "$NERVES_DEFCONFIG_DIR/package/ti-linux-firmware/Config.in"
+source "$NERVES_DEFCONFIG_DIR/package/ti-k3-boot-firmware/Config.in"
 source "$NERVES_DEFCONFIG_DIR/package/ti-k3-secdev/Config.in"
 source "$NERVES_DEFCONFIG_DIR/package/ti-k3-r5-loader-next/Config.in"
 source "$NERVES_DEFCONFIG_DIR/package/ti-k3-image-gen/Config.in"
