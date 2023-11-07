@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-TI_K3_IMAGE_GEN_VERSION = 08.06.00.007
+TI_K3_IMAGE_GEN_VERSION = 09.00.00.001
 TI_K3_IMAGE_GEN_SITE = https://git.ti.com/cgit/k3-image-gen/k3-image-gen/snapshot
 TI_K3_IMAGE_GEN_SOURCE = k3-image-gen-$(TI_K3_IMAGE_GEN_VERSION).tar.gz
 TI_K3_IMAGE_GEN_LICENSE = BSD-3-Clause

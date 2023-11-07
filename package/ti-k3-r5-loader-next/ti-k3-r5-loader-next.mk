@@ -40,6 +40,10 @@ TI_K3_R5_LOADER_NEXT_DEPENDENCIES = \
 	$(BR2_MAKE_HOST_DEPENDENCY) \
 	host-arm-gnu-toolchain \
 	host-openssl \
+	host-python-attrs2 \
+	host-python-jsonschema2 \
+	host-python-pyrsistent2 \
+	host-python-pyyaml \
 	ti-k3-boot-firmware
 
 TI_K3_R5_LOADER_NEXT_MAKE = $(BR2_MAKE)
@@ -55,18 +59,20 @@ TI_K3_R5_LOADER_NEXT_KCONFIG_DEFCONFIG = $(call qstrip,$(BR2_PACKAGE_TI_K3_R5_LO
 else ifeq ($(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_USE_CUSTOM_CONFIG),y)
 TI_K3_R5_LOADER_NEXT_KCONFIG_FILE = $(call qstrip,$(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_CUSTOM_CONFIG_FILE))
 endif # BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_USE_DEFCONFIG
-TI_K3_R5_LOADER_NEXT_MAKE_OPTS = \
+TI_K3_R5_LOADER_NEXT_MAKE_OPTS += \
 	CROSS_COMPILE=$(HOST_DIR)/bin/arm-none-eabi- \
 	ARCH=arm \
 	HOSTCC="$(HOSTCC) $(subst -I/,-isystem /,$(subst -I /,-isystem /,$(HOST_CFLAGS)))" \
-	HOSTLDFLAGS="$(HOST_LDFLAGS)"
+	HOSTLDFLAGS="$(HOST_LDFLAGS)" \
+	BINMAN_INDIRS=$(BINARIES_DIR)
 
 define TI_K3_R5_LOADER_NEXT_BUILD_CMDS
 	$(TARGET_CONFIGURE_OPTS) $(TI_K3_R5_LOADER_NEXT_MAKE) -C $(@D) $(TI_K3_R5_LOADER_NEXT_MAKE_OPTS)
 endef
 
 define TI_K3_R5_LOADER_NEXT_INSTALL_IMAGES_CMDS
-	cp $(@D)/spl/u-boot-spl.bin $(BINARIES_DIR)/r5-u-boot-spl.bin
+	cp $(@D)/tiboot3-*.bin $(BINARIES_DIR)/
+	cp $(@D)/tiboot3-am62x-gp-evm.bin $(BINARIES_DIR)/tiboot3.bin
 endef
 
 $(eval $(kconfig-package))

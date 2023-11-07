@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-TI_K3_SECDEV_VERSION = 08.06.00.007
+TI_K3_SECDEV_VERSION = ed6951fd3877c6cac7f1237311f7278ac21634f3
 TI_K3_SECDEV_SITE = https://git.ti.com/cgit/security-development-tools/core-secdev-k3/snapshot
 TI_K3_SECDEV_SOURCE = core-secdev-k3-$(TI_K3_SECDEV_VERSION).tar.gz
 TI_K3_SECDEV_INSTALL_STAGING = NO
