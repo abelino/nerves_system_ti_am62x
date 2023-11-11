@@ -1,1 +1,5 @@
-# Add project-specific packages for Buildroot here
+source "$NERVES_DEFCONFIG_DIR/package/python-attrs2/Config.in"
+source "$NERVES_DEFCONFIG_DIR/package/python-jsonschema2/Config.in"
+source "$NERVES_DEFCONFIG_DIR/package/ti-k3-boot-firmware/Config.in"
+source "$NERVES_DEFCONFIG_DIR/package/ti-k3-r5-loader-next/Config.in"
+source "$NERVES_DEFCONFIG_DIR/package/ti-k3-secdev/Config.in"

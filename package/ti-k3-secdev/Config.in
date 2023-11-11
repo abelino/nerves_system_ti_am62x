@@ -1,0 +1,4 @@
+config BR2_PACKAGE_HOST_TI_K3_SECDEV
+	bool "host ti-k3-secdev"
+	help
+	  Security development tools for High-Security(HS) TI K3 processors

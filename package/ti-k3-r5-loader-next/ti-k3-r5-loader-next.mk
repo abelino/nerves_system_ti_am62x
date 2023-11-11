@@ -1,0 +1,78 @@
+################################################################################
+#
+# ti-k3-r5-loader-next
+#
+################################################################################
+
+TI_K3_R5_LOADER_NEXT_VERSION = $(call qstrip,$(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_VERSION))
+
+ifeq ($(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_CUSTOM_TARBALL),y)
+# Handle custom U-Boot tarballs as specified by the configuration
+TI_K3_R5_LOADER_NEXT_TARBALL = $(call qstrip,$(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_CUSTOM_TARBALL_LOCATION))
+TI_K3_R5_LOADER_NEXT_SITE = $(patsubst %/,%,$(dir $(TI_K3_R5_LOADER_NEXT_TARBALL)))
+TI_K3_R5_LOADER_NEXT_SOURCE = $(notdir $(TI_K3_R5_LOADER_NEXT_TARBALL))
+else ifeq ($(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_CUSTOM_GIT),y)
+TI_K3_R5_LOADER_NEXT_SITE = $(call qstrip,$(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_CUSTOM_REPO_URL))
+TI_K3_R5_LOADER_NEXT_SITE_METHOD = git
+else ifeq ($(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_CUSTOM_HG),y)
+TI_K3_R5_LOADER_NEXT_SITE = $(call qstrip,$(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_CUSTOM_REPO_URL))
+TI_K3_R5_LOADER_NEXT_SITE_METHOD = hg
+else ifeq ($(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_CUSTOM_SVN),y)
+TI_K3_R5_LOADER_NEXT_SITE = $(call qstrip,$(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_CUSTOM_REPO_URL))
+TI_K3_R5_LOADER_NEXT_SITE_METHOD = svn
+else
+# Handle stable official U-Boot versions
+TI_K3_R5_LOADER_NEXT_SITE = https://ftp.denx.de/pub/u-boot
+TI_K3_R5_LOADER_NEXT_SOURCE = u-boot-$(TI_K3_R5_LOADER_NEXT_VERSION).tar.bz2
+endif
+
+ifeq ($(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT)$(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_LATEST_VERSION),y)
+BR_NO_CHECK_HASH_FOR += $(TI_K3_R5_LOADER_NEXT_SOURCE)
+endif
+
+TI_K3_R5_LOADER_NEXT_LICENSE = GPL-2.0+
+TI_K3_R5_LOADER_NEXT_LICENSE_FILES = Licenses/gpl-2.0.txt
+TI_K3_R5_LOADER_NEXT_CPE_ID_VENDOR = denx
+TI_K3_R5_LOADER_NEXT_CPE_ID_PRODUCT = u-boot
+TI_K3_R5_LOADER_NEXT_INSTALL_IMAGES = YES
+TI_K3_R5_LOADER_NEXT_DEPENDENCIES = \
+	host-pkgconf \
+	$(BR2_MAKE_HOST_DEPENDENCY) \
+	host-arm-gnu-toolchain \
+	host-openssl \
+	host-python-attrs2 \
+	host-python-jsonschema2 \
+	host-python-pyrsistent2 \
+	host-python-pyyaml \
+	ti-k3-boot-firmware
+
+TI_K3_R5_LOADER_NEXT_MAKE = $(BR2_MAKE)
+TI_K3_R5_LOADER_NEXT_MAKE_ENV = $(TARGET_MAKE_ENV)
+TI_K3_R5_LOADER_NEXT_KCONFIG_DEPENDENCIES = \
+	host-arm-gnu-toolchain \
+	$(BR2_MAKE_HOST_DEPENDENCY) \
+	$(BR2_BISON_HOST_DEPENDENCY) \
+	$(BR2_FLEX_HOST_DEPENDENCY)
+
+ifeq ($(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_USE_DEFCONFIG),y)
+TI_K3_R5_LOADER_NEXT_KCONFIG_DEFCONFIG = $(call qstrip,$(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_BOARD_DEFCONFIG))_defconfig
+else ifeq ($(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_USE_CUSTOM_CONFIG),y)
+TI_K3_R5_LOADER_NEXT_KCONFIG_FILE = $(call qstrip,$(BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_CUSTOM_CONFIG_FILE))
+endif # BR2_PACKAGE_TI_K3_R5_LOADER_NEXT_USE_DEFCONFIG
+TI_K3_R5_LOADER_NEXT_MAKE_OPTS += \
+	CROSS_COMPILE=$(HOST_DIR)/bin/arm-none-eabi- \
+	ARCH=arm \
+	HOSTCC="$(HOSTCC) $(subst -I/,-isystem /,$(subst -I /,-isystem /,$(HOST_CFLAGS)))" \
+	HOSTLDFLAGS="$(HOST_LDFLAGS)" \
+	BINMAN_INDIRS=$(BINARIES_DIR)
+
+define TI_K3_R5_LOADER_NEXT_BUILD_CMDS
+	$(TARGET_CONFIGURE_OPTS) $(TI_K3_R5_LOADER_NEXT_MAKE) -C $(@D) $(TI_K3_R5_LOADER_NEXT_MAKE_OPTS)
+endef
+
+define TI_K3_R5_LOADER_NEXT_INSTALL_IMAGES_CMDS
+	cp $(@D)/tiboot3-*.bin $(BINARIES_DIR)/
+	cp $(@D)/tiboot3-am62x-gp-evm.bin $(BINARIES_DIR)/tiboot3.bin
+endef
+
+$(eval $(kconfig-package))
