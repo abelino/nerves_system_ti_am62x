@@ -101,7 +101,7 @@ defmodule NervesSystemAM62X.MixProject do
       "rootfs_overlay",
       "uboot",
       "CHANGELOG.md",
-      "fwup-revert.conf",
+      "fwup-ops.conf",
       "fwup.conf",
       "LICENSE",
       "mix.exs",
